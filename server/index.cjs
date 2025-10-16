@@ -45,7 +45,21 @@ app.get('/api/readings', (req, res) => {
 
 // Endpoint para obtener el historial de lecturas
 app.get('/api/history', (req, res) => {
-  res.json(readings);
+  const { startDate, endDate } = req.query;
+  let filteredReadings = readings;
+
+  if (startDate || endDate) {
+    try {
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(endDate) : null;
+
+      filteredReadings = readings.filter(reading => {
+        const readingDate = new Date(reading.timestamp);
+        return (!start || readingDate >= start) && (!end || readingDate <= end);
+      });
+    } catch (error) {} // Ignore invalid date formats and return all readings
+  }
+  res.json(filteredReadings);
 });
 
 // Manejo de conexiones WebSocket
