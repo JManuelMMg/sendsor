@@ -8,7 +8,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 
 import SensorCard from './components/SensorCard';
 import History from './components/History';
-import AlertsPanel from './components/AlertsPanel'; // Importamos el panel
+import AlertsPanel from './components/AlertsPanel';
 import './App.css';
 
 const levels = {
@@ -26,14 +26,15 @@ const getGasLevel = (ppm) => {
 };
 
 function App() {
-  const [readingsBySensor, setReadingsBySensor] = useState({});
+  // Estado simplificado para un solo sensor
+  const [readings, setReadings] = useState([]);
   const [connected, setConnected] = useState(false);
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
-  const [selectedSensorForHistory, setSelectedSensorForHistory] = useState('');
-  const [alerts, setAlerts] = useState([]); // Nuevo estado para las alertas
+  const [alerts, setAlerts] = useState([]);
 
   const historyRef = useRef();
+  const alarmSoundRef = useRef(null); 
 
   useEffect(() => {
     const connect = () => {
@@ -45,35 +46,28 @@ function App() {
         const data = JSON.parse(event.data);
 
         if (data.type === 'history') {
-          setReadingsBySensor(data.payload);
-          if (!selectedSensorForHistory) {
-            const firstSensorId = Object.keys(data.payload)[0];
-            if (firstSensorId) setSelectedSensorForHistory(firstSensorId);
-          }
+          setReadings(data.payload);
         } else if (data.type === 'new_reading') {
-          const { sensorId, ppm, timestamp } = data.payload;
+          const { ppm, timestamp } = data.payload;
           const level = getGasLevel(ppm);
           data.payload.level = level.label;
 
-          // Lógica para crear alertas
           if (level.label === 'CRITICO' || level.label === 'BAJO') {
             const newAlert = {
               timestamp: format(new Date(timestamp), 'HH:mm:ss'),
-              message: `Sensor ${sensorId} en estado ${level.label} (${ppm} PPM)`,
+              message: `Nivel de producción ${level.label} (${ppm} PPM)`,
               level: level.label,
             };
-            // Añadimos la nueva alerta al principio del array
             setAlerts(prevAlerts => [newAlert, ...prevAlerts]);
-          }
 
-          setReadingsBySensor(prevReadings => ({
-            ...prevReadings,
-            [sensorId]: [data.payload, ...(prevReadings[sensorId] || [])],
-          }));
-
-          if (!selectedSensorForHistory) {
-            setSelectedSensorForHistory(sensorId);
+            // Sonar alarma solo para nivel CRITICO
+            if (level.label === 'CRITICO' && alarmSoundRef.current) {
+              alarmSoundRef.current.play().catch(error => console.log("Error al reproducir sonido:", error));
+            }
           }
+          
+          // Añadimos la nueva lectura al estado
+          setReadings(prevReadings => [data.payload, ...prevReadings]);
         }
       };
 
@@ -89,63 +83,50 @@ function App() {
     };
 
     connect();
-  }, [selectedSensorForHistory]);
+  }, []);
 
   const handleHistoryExport = async () => { /* ... */ };
   const handleTextExport = () => { /* ... */ };
 
-  const sensorIds = Object.keys(readingsBySensor);
+  const currentReading = readings.length > 0 ? readings[0] : { ppm: 0 };
+  const currentLevel = getGasLevel(currentReading.ppm);
 
   return (
     <div className="App">
-      <header className="App-header">{/* ... */}</header>
+      <header className="App-header">
+        <h1>Dashboard de Producción de Gas</h1>
+        <div className="status-light" style={{ backgroundColor: connected ? '#2ecc71' : '#e74c3c' }} />
+        <span style={{ marginLeft: '10px' }}>{connected ? 'Conectado' : 'Desconectado'}</span>
+      </header>
 
       <main>
-        <div className="dashboard-container">{/* ... */}
-            {sensorIds.length > 0 ? (
-                sensorIds.map(sensorId => {
-                    const readings = readingsBySensor[sensorId] || [];
-                    const currentReading = readings.length > 0 ? readings[0] : { ppm: 0 };
-                    const level = getGasLevel(currentReading.ppm);
-                    return (
-                        <SensorCard 
-                            key={sensorId} 
-                            sensorId={sensorId}
-                            readings={readings}
-                            currentPPM={currentReading.ppm}
-                            level={level.label}
-                            levelColor={level.color}
-                        />
-                    )
-                })
-            ) : (
-                <p className='loading-sensors'>Esperando datos de los sensores de producción...</p>
-            )}
+        <div className="dashboard-container">
+          {readings.length > 0 ? (
+            <SensorCard 
+              sensorId="Planta de Producción Principal" // Título Fijo
+              readings={readings}
+              currentPPM={currentReading.ppm}
+              level={currentLevel.label}
+              levelColor={currentLevel.color}
+            />
+          ) : (
+            <p className='loading-sensors'>Esperando datos del sensor de producción...</p>
+          )}
         </div>
 
-        {/* Panel de Alertas Renderizado */}
         <AlertsPanel alerts={alerts} />
 
         <div ref={historyRef} className="history-section-wrapper">
-          <div className="history-controls">{/* ... */}
-              <div className="sensor-selector-container">
-                <label htmlFor="sensor-select">Ver historial de:</label>
-                <select 
-                  id="sensor-select"
-                  value={selectedSensorForHistory}
-                  onChange={e => setSelectedSensorForHistory(e.target.value)}
-                >
-                  {sensorIds.map(id => <option key={id} value={id}>{id}</option>)
-                  }
-                </select>
-              </div>
-              <DatePicker selected={startDate} onChange={date => setStartDate(date)} placeholderText="Fecha de inicio" />
-              <DatePicker selected={endDate} onChange={date => setEndDate(date)} placeholderText="Fecha de fin" />
-              <button onClick={handleHistoryExport}>Exportar a PDF</button>
-              <button onClick={handleTextExport}>Exportar a Texto</button>
+          <div className="history-controls">
+            <DatePicker selected={startDate} onChange={date => setStartDate(date)} placeholderText="Fecha de inicio" />
+            <DatePicker selected={endDate} onChange={date => setEndDate(date)} placeholderText="Fecha de fin" />
+            <button onClick={handleHistoryExport}>Exportar a PDF</button>
+            <button onClick={handleTextExport}>Exportar a Texto</button>
           </div>
-          <History readings={readingsBySensor[selectedSensorForHistory] || []} levelsConfig={levels} />
+          <History readings={readings} levelsConfig={levels} />
         </div>
+
+        <audio ref={alarmSoundRef} src="/alarm.mp3" preload="auto"></audio>
       </main>
     </div>
   );

@@ -9,18 +9,16 @@ const wss = new WebSocket.Server({ server });
 
 const PORT = 9090;
 
-// Objeto para almacenar las lecturas, organizado por sensorId.
-// Ejemplo: { "sensor-01": [lectura1, lectura2], "sensor-02": [...] }
-let readingsBySensor = {};
-const MAX_READINGS_PER_SENSOR = 100;
+// Cambiamos a una única lista de lecturas
+let readings = [];
+const MAX_READINGS = 200; // Mantenemos un historial de las últimas 200 lecturas
 
-// Endpoint para que los dispositivos Arduino envíen datos
+// Endpoint para que el dispositivo envíe datos (ahora sin sensorId)
 app.get('/api/readings', (req, res) => {
-  const { ppm, raw, rs, level, sensorId = 'main_sensor' } = req.query; // Se añade sensorId, con un valor por defecto
+  const { ppm, raw, rs, level } = req.query;
 
   if (ppm && raw && rs && level) {
     const newReading = {
-      sensorId, // Se incluye el ID del sensor en la lectura
       ppm: parseFloat(ppm),
       raw: parseInt(raw),
       rs: parseFloat(rs),
@@ -28,65 +26,44 @@ app.get('/api/readings', (req, res) => {
       timestamp: new Date(),
     };
 
-    // Si es la primera vez que vemos este sensor, inicializamos su array
-    if (!readingsBySensor[sensorId]) {
-      readingsBySensor[sensorId] = [];
+    // Añadimos la nueva lectura al principio de la lista
+    readings.unshift(newReading);
+
+    // Limitamos el tamaño del historial para no consumir memoria infinita
+    if (readings.length > MAX_READINGS) {
+      readings.pop();
     }
 
-    // Añadir la nueva lectura y mantener solo las últimas N
-    readingsBySensor[sensorId].unshift(newReading);
-    readingsBySensor[sensorId] = readingsBySensor[sensorId].slice(0, MAX_READINGS_PER_SENSOR);
-
-    // Enviar la nueva lectura a todos los clientes WebSocket conectados
-    // El payload ahora contiene el sensorId, para que el frontend sepa qué actualizar
-    wss.clients.forEach((client) => {
+    // Enviamos la nueva lectura a todos los clientes conectados al dashboard
+    wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(JSON.stringify({ type: 'new_reading', payload: newReading }));
       }
     });
 
-    console.log(`Lectura recibida de [${sensorId}]:`, newReading);
-    res.status(200).send('OK');
+    res.status(200).send('Reading received');
   } else {
-    res.status(400).send('Faltan parámetros');
+    res.status(400).send('Invalid reading data. Asegúrate de enviar ppm, raw, rs y level.');
   }
 });
 
-// Endpoint para obtener el historial de lecturas (ahora también filtra por sensor)
+// Endpoint para obtener todo el historial (simplificado)
 app.get('/api/history', (req, res) => {
-  const { startDate, endDate, sensorId = 'main_sensor' } = req.query;
-  
-  const sensorHistory = readingsBySensor[sensorId] || [];
-  let filteredReadings = sensorHistory;
-
-  if (startDate || endDate) {
-    try {
-      const start = startDate ? new Date(startDate) : null;
-      const end = endDate ? new Date(endDate) : null;
-
-      filteredReadings = sensorHistory.filter(reading => {
-        const readingDate = new Date(reading.timestamp);
-        return (!start || readingDate >= start) && (!end || readingDate <= end);
-      });
-    } catch (error) {
-      // Ignorar fechas inválidas y devolver el historial completo del sensor
-    }
-  }
-  res.json(filteredReadings);
+  res.json(readings);
 });
 
-// Manejo de conexiones WebSocket
-wss.on('connection', (ws) => {
-  console.log('Cliente WebSocket conectado');
+// Lógica de conexión del WebSocket
+wss.on('connection', ws => {
+  console.log('Cliente del Dashboard conectado.');
 
-  // Enviar todo el historial de todos los sensores al nuevo cliente
-  ws.send(JSON.stringify({ type: 'history', payload: readingsBySensor }));
+  // Al conectarse un nuevo cliente, se le envía el historial completo actual
+  ws.send(JSON.stringify({ type: 'history', payload: readings }));
 
   ws.on('close', () => {
-    console.log('Cliente WebSocket desconectado');
+    console.log('Cliente del Dashboard desconectado.');
   });
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor corriendo en http://0.0.0.0:${PORT}`);
+  console.log(`Servidor de WebSocket y API corriendo en http://0.0.0.0:${PORT}`);
 });
