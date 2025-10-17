@@ -1,52 +1,63 @@
 
 import React from 'react';
-import { format } from 'date-fns';
-import HistoryChart from './HistoryChart'; // Importamos el nuevo componente de gráfica
-import './History.css'; // Asegurémonos de tener estilos para el historial
+import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import './History.css';
 
-const History = ({ readings }) => {
+// Componente para personalizar la etiqueta de la barra
+const CustomizedLabel = ({ x, y, width, height, value, level, levelsConfig }) => {
+  const levelColor = levelsConfig[level]?.color || '#cccccc';
+  return (
+    <text 
+      x={x + width / 2} 
+      y={y - 5} 
+      fill={levelColor}
+      textAnchor="middle" 
+      dominantBaseline="middle"
+      fontSize="10"
+    >
+      {value}
+    </text>
+  );
+};
+
+const History = ({ readings, levelsConfig }) => {
+
+  // Damos la vuelta a los datos para que el más antiguo aparezca primero en el gráfico
+  const chartData = readings.slice().reverse();
+
   return (
     <div className="history-container">
-      <h2>Historial de Mediciones</h2>
-
-      {/* 1. La nueva gráfica animada */}
-      <div className="chart-wrapper" style={{ marginBottom: '40px' }}>
-        {readings && readings.length > 0 ? (
-          <HistoryChart data={readings} />
-        ) : (
-          <p style={{ textAlign: 'center', color: '#888' }}>No hay datos históricos para mostrar en la gráfica.</p>
-        )}
-      </div>
-
-      {/* 2. La tabla detallada */}
-      <div className="table-wrapper">
-        <table className="history-table">
-          <thead>
-            <tr>
-              <th>Fecha y Hora</th>
-              <th>PPM</th>
-              <th>Nivel</th>
-              <th>Valor Raw</th>
-            </tr>
-          </thead>
-          <tbody>
-            {readings && readings.length > 0 ? (
-              readings.map((reading, index) => (
-                <tr key={index} className={`level-${reading.level.toLowerCase()}`}>
-                  <td>{format(new Date(reading.timestamp), 'PPpp', { timeZone: 'UTC' })}</td>
-                  <td>{reading.ppm.toFixed(1)}</td>
-                  <td>{reading.level}</td>
-                  <td>{reading.raw}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan="4" style={{ textAlign: 'center', color: '#888' }}>Esperando lecturas...</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <h3 className="history-title">Historial de Producción</h3>
+      <ResponsiveContainer width="100%" height={300}>
+        <BarChart
+          data={chartData}
+          margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+        >
+          <XAxis 
+            dataKey="timestamp" 
+            tickFormatter={(time) => new Date(time).toLocaleString()} 
+            stroke="#b0b0b0"
+            tick={{ fill: '#b0b0b0', fontSize: 10 }}
+          />
+          <YAxis 
+            stroke="#b0b0b0"
+            tick={{ fill: '#b0b0b0', fontSize: 12 }}
+          />
+          <Tooltip 
+            contentStyle={{ backgroundColor: 'rgba(30, 40, 50, 0.9)', border: '1px solid #8884d8' }} 
+            labelStyle={{ color: '#ffffff' }}
+            formatter={(value, name, props) => [`${value} PPM`, `Nivel: ${props.payload.level}`]}
+          />
+          <Legend wrapperStyle={{ color: '#ffffff' }} />
+          <Bar 
+            dataKey="ppm" 
+            name="Nivel de Gas (PPM)"
+            label={(props) => <CustomizedLabel {...props} levelsConfig={levelsConfig} />}
+          > 
+            {/* Se elimina la asignación estática de colores */}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 };
