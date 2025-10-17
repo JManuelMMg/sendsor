@@ -13,25 +13,32 @@ let readings = [];
 const MAX_READINGS = 200;
 
 app.get('/api/readings', (req, res) => {
-  // Logs para depuración
-  console.log(`[${new Date().toLocaleTimeString()}] Petición recibida en /api/readings`);
-  console.log('  -> Query Params:', req.query);
+  console.log(`[${new Date().toLocaleTimeString()}] Petición recibida con los parámetros:`, req.query);
 
   const { ppm, raw, rs, level } = req.query;
+  const errors = [];
 
-  if (ppm && raw && rs && level) {
+  const parsedPPM = parseFloat(ppm);
+  const parsedRaw = parseInt(raw, 10);
+  const parsedRS = parseFloat(rs);
+
+  // Validación individual y robusta de cada campo
+  if (isNaN(parsedPPM)) errors.push('ppm');
+  if (isNaN(parsedRaw)) errors.push('raw');
+  if (isNaN(parsedRS)) errors.push('rs');
+  if (!level || typeof level !== 'string' || level.trim() === '') errors.push('level');
+
+  if (errors.length === 0) {
     const newReading = {
-      ppm: parseFloat(ppm),
-      raw: parseInt(raw),
-      rs: parseFloat(rs),
+      ppm: parsedPPM,
+      raw: parsedRaw,
+      rs: parsedRS,
       level: level,
       timestamp: new Date(),
     };
 
     readings.unshift(newReading);
-    if (readings.length > MAX_READINGS) {
-      readings.pop();
-    }
+    if (readings.length > MAX_READINGS) readings.pop();
 
     wss.clients.forEach(client => {
       if (client.readyState === WebSocket.OPEN) {
@@ -39,11 +46,12 @@ app.get('/api/readings', (req, res) => {
       }
     });
     
-    console.log('  -> Datos VÁLIDOS. Lectura procesada y enviada al dashboard.');
-    res.status(200).send('Reading received');
+    console.log('  -> Datos VÁLIDOS. Lectura procesada.');
+    res.status(200).send('Reading received successfully');
   } else {
-    console.log('  -> Error: Datos INVÁLIDOS o incompletos.');
-    res.status(400).send('Invalid reading data. Asegúrate de enviar ppm, raw, rs y level.');
+    const errorMessage = `Los siguientes campos son inválidos o están ausentes: ${errors.join(', ')}`;
+    console.error(`  -> Error 400: ${errorMessage}`);
+    res.status(400).send(errorMessage);
   }
 });
 
@@ -54,15 +62,10 @@ app.get('/api/history', (req, res) => {
 wss.on('connection', ws => {
   console.log('[WebSocket] Cliente del Dashboard conectado.');
   ws.send(JSON.stringify({ type: 'history', payload: readings }));
-
-  ws.on('close', () => {
-    console.log('[WebSocket] Cliente del Dashboard desconectado.');
-  });
+  ws.on('close', () => console.log('[WebSocket] Cliente del Dashboard desconectado.'));
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor de WebSocket y API corriendo en http://0.0.0.0:${PORT}`);
-  console.log('------------------------------------------------------------');
-  console.log('Esperando peticiones del sensor en /api/readings...');
-  console.log('------------------------------------------------------------');
+  console.log(`Servidor robusto de API y WebSocket corriendo en http://0.0.0.0:${PORT}`);
+  console.log('Esperando peticiones del sensor...');
 });
